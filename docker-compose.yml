@@ -1,0 +1,31 @@
+version: '3'
+services:
+  db:
+    build: ./docker/db
+    hostname: db
+    tty: true
+    privileged: true
+    networks:
+      envoymesh:
+        aliases:
+          - db
+  special:
+    build: ./docker/special
+    hostname: special
+    tty: true
+    privileged: true
+    networks:
+      envoymesh:
+        aliases:
+          - special
+  spire-server:
+    build: ./docker/spire-server
+    hostname: spire-server
+    tty: true
+    privileged: true
+    networks:
+      envoymesh:
+        aliases:
+          - spire-server
+networks:
+  envoymesh: {}
