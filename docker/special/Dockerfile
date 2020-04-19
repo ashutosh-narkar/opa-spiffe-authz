@@ -1,4 +1,4 @@
-FROM gcr.io/spiffe-io/spire-agent:unstable as spire
+FROM gcr.io/spiffe-io/spire-agent:0.9.3 as spire
 
 FROM envoyproxy/envoy-alpine:v1.10.0
 RUN mkdir -p /opt/spire/conf/agent
