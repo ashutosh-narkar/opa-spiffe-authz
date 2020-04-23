@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from flask import Flask, request
+from flask import Flask, request, render_template
 import requests
 
 import logging
@@ -12,7 +12,8 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Hello, World!"
+    message = "Welcome to the OPA-SPIRE Demo"
+    return render_template('index.html', message=message)
 
 @app.route('/connect/<service>')
 def make_connection(service):

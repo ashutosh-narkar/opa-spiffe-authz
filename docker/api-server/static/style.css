@@ -1,0 +1,17 @@
+h1 {
+    color: #020816;
+    font-size: 50px;
+    text-align:left;
+}
+
+body {
+    background: #FFFFFF;
+}
+
+img {
+    display: inline;
+    margin: 0px;
+    padding: 0px;
+    vertical-align:middle;
+    width:200px;
+}
