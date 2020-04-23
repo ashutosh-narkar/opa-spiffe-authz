@@ -8,6 +8,7 @@ COPY conf/spire-agent.conf /opt/spire/conf/agent/agent.conf
 COPY conf/agent.key.pem /opt/spire/conf/agent/agent.key.pem
 COPY conf/agent.crt.pem /opt/spire/conf/agent/agent.crt.pem
 COPY db-server /usr/local/bin/db-server
+COPY opa/policy.rego /opt/spire
 
 WORKDIR /opt/spire
 

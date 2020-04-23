@@ -2,12 +2,20 @@ package main
 
 import (
 	"bufio"
+	"io"
+
 	"context"
+	"crypto/x509"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/spiffe/go-spiffe/spiffe"
+	"github.com/go-chi/chi"
+	"github.com/opa-spiffe-demo/src/opa"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/go-spiffe/v2/spiffetls"
+	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
+	"net/http"
 
-	"io"
 	"log"
 	"net"
 	"os"
@@ -18,12 +26,23 @@ import (
 // the SPIFFE ID: spiffe://domain.test/special
 
 var (
-	logFlag = flag.String("log", "", "path to log to (empty=stderr)")
+	addrFlag = flag.String("addr", ":8001", "address to bind the special server to")
+	logFlag  = flag.String("log", "", "path to log to (empty=stderr)")
 )
 
+// Patient holds patient info
+type Patient struct {
+	ID           string `json:"id,omitempty"`
+	Firstname    string `json:"firstname,omitempty"`
+	Lastname     string `json:"lastname,omitempty"`
+	SSN          string `json:"ssn,omitempty"`
+	EnrolleeType string `json:"enrollee_type,omitempty"`
+}
+
 const (
-	serverAddress    = "db:8082"
-	serverSpiffeID   = "spiffe://domain.test/db-server"
+	serverAddress = "db:8082"
+	//serverSpiffeID   = "spiffe://domain.test/db-server"
+	clientSpiffeID   = "spiffe://domain.test/special"
 	spiffeSocketPath = "unix:///tmp/agent.sock"
 	dialTimeout      = 2 * time.Minute
 )
@@ -37,7 +56,7 @@ func main() {
 
 func run(ctx context.Context) (err error) {
 	flag.Parse()
-	log.SetPrefix("db> ")
+	log.SetPrefix("special> ")
 	log.SetFlags(log.Ltime)
 	if *logFlag != "" {
 		logFile, err := os.OpenFile(*logFlag, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
@@ -50,55 +69,126 @@ func run(ctx context.Context) (err error) {
 		log.SetOutput(os.Stdout)
 	}
 
+	log.Printf("starting special server...")
+
+	ln, err := net.Listen("tcp", *addrFlag)
+	if err != nil {
+		return fmt.Errorf("unable to listen: %v", err)
+	}
+	defer ln.Close()
+
+	r := chi.NewRouter()
+	r.Use(noCache)
+	r.Get("/connect", http.HandlerFunc(handleConnect))
+	r.Get("/getdata", http.HandlerFunc(handleGetData))
+
+	log.Printf("listening on %s...", ln.Addr())
+	server := &http.Server{
+		Handler: r,
+	}
+	return server.Serve(ln)
+}
+
+func handleConnect(w http.ResponseWriter, r *http.Request) {
+	conn := makeTLSConnection()
+
+	// Send a message to the server using the TLS connection
+	fmt.Fprintf(conn, "Hello server\n")
+
+	msg, err := readDataOnConn(conn)
+
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(err.Error()))
+	} else {
+		log.Printf("DB Server says: %v\n", msg)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(fmt.Sprintf("DB Server says => %v\n", msg)))
+	}
+}
+
+func handleGetData(w http.ResponseWriter, r *http.Request) {
+	conn := makeTLSConnection()
+
+	// Send a message to the server using the TLS connection
+	fmt.Fprintf(conn, "/getdata\n")
+
+	msg, err := readDataOnConnJson(conn)
+
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(err.Error()))
+	} else {
+		log.Printf("DB Server says: %v\n", msg)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(msg)
+	}
+}
+
+func makeTLSConnection() net.Conn {
+
 	// Set SPIFFE_ENDPOINT_SOCKET to the workload API provider socket path (SPIRE is used in this example).
-	err = os.Setenv("SPIFFE_ENDPOINT_SOCKET", spiffeSocketPath)
+	err := os.Setenv("SPIFFE_ENDPOINT_SOCKET", spiffeSocketPath)
 	if err != nil {
 		log.Fatalf("Unable to set SPIFFE_ENDPOINT_SOCKET env variable: %v", err)
 	}
 
 	//Setup context
-	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
 
-	//Create a TLS connection.
-	//The client expects the server to present an SVID with the spiffeID: 'spiffe://domain.test/db-server'
+	//Create a TLS connection
 
-	var retry int
-	var conn net.Conn
-	for {
-		conn, err = spiffe.DialTLS(ctx, "tcp", serverAddress, spiffe.ExpectPeer(serverSpiffeID))
-		//conn, err = net.Dial("tcp", serverAddress) // THIS WORKS
-		var delay time.Duration
+	// allow any SPIFFE ID
+	//conn, err = spiffetls.Dial(ctx, "tcp", serverAddress, tlsconfig.AuthorizeAny())
 
-		if err == nil {
-			log.Printf("Created TLS connection after %v retries", retry)
-			break
-		}
+	// allow a specific SPIFFE ID
+	//spiffeID, _ := spiffeid.FromString(serverSpiffeID)
+	//conn, err = spiffetls.Dial(ctx, "tcp", serverAddress, tlsconfig.AuthorizeID(spiffeID))
 
-		log.Printf("Unable to create TLS connection: %v", err)
-
-		delay = time.Duration(2 * time.Minute)
-		timer := time.NewTimer(delay)
-
-		select {
-		case <-timer.C:
-			if err != nil {
-				retry++
-				log.Printf("Trying to create TLS connection. Attempt %v", retry)
-			}
-		}
+	// OPA as authorizer
+	conn, err := spiffetls.Dial(ctx, "tcp", serverAddress, Authorizer())
+	if err != nil {
+		log.Fatalf("Unable to create TLS connection: %v", err)
 	}
+	return conn
+}
 
-	// Send a message to the server using the TLS connection
-	fmt.Fprintf(conn, "Hello server\n")
+func readDataOnConn(conn net.Conn) (string, error) {
 
 	// Read server response
-	for {
-		status, err := bufio.NewReader(conn).ReadString('\n')
-		if err != nil && err != io.EOF {
-			log.Fatalf("Unable to read server response: %v", err)
-		}
-		log.Printf("Server says: %q", status)
+	status, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil && err != io.EOF && err.Error() == "remote error: tls: bad certificate" {
+		msg := fmt.Sprintf("DB Server says => OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
+		log.Printf(msg)
+		return "", fmt.Errorf(msg)
 	}
-	return nil
+	return status, nil
+}
+
+func readDataOnConnJson(conn net.Conn) ([]Patient, error) {
+
+	// Read server response
+	decoder := json.NewDecoder(conn)
+	patients := []Patient{}
+
+	if err := decoder.Decode(&patients); err != nil {
+		log.Printf("Dencoding error: %v\n", err)
+	}
+	return patients, nil
+}
+
+// Authorizer authorizes the request using OPA
+func Authorizer() tlsconfig.Authorizer {
+	return tlsconfig.Authorizer(func(actual spiffeid.ID, verifiedChains [][]*x509.Certificate) error {
+		return opa.Authorizer(actual.String(), verifiedChains)
+	})
+}
+
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Expires", "0")
+		h.ServeHTTP(w, r)
+	})
 }
