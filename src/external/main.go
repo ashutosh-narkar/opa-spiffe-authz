@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"io"
+	"strings"
 
 	"context"
 	"crypto/x509"
@@ -36,6 +38,12 @@ const (
 	spiffeSocketPath = "unix:///tmp/agent.sock"
 	dialTimeout      = 2 * time.Minute
 )
+
+// Result holds the final response to return to the client
+type Result struct {
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
 
 func main() {
 	if err := run(context.Background()); err != nil {
@@ -80,14 +88,17 @@ func run(ctx context.Context) (err error) {
 
 func handleConnect(w http.ResponseWriter, r *http.Request) {
 	msg, err := makeTLSConnection()
+	result := Result{}
 
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(err.Error()))
+		result.Error = strings.TrimSpace(err.Error())
 	} else {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(msg))
+		message := fmt.Sprintf("OPA allowed request: %v", strings.TrimSpace(msg))
+		result.Message = message
 	}
+	json.NewEncoder(w).Encode(result)
 }
 
 func makeTLSConnection() (string, error) {
@@ -124,12 +135,12 @@ func makeTLSConnection() (string, error) {
 	for {
 		status, err := bufio.NewReader(conn).ReadString('\n')
 		if err != nil && err != io.EOF && err.Error() == "remote error: tls: bad certificate" {
-			msg := fmt.Sprintf("DB Server says => OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
+			msg := fmt.Sprintf("OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
 			log.Printf(msg)
 			return "", fmt.Errorf(msg)
 		}
 		log.Printf("DB Server says: %v", status)
-		return fmt.Sprintf("DB Server says => %v\n", status), nil
+		return status, nil
 	}
 }
 

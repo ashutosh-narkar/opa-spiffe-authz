@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"io"
+	"strings"
 
 	"context"
 	"crypto/x509"
@@ -37,6 +38,12 @@ type Patient struct {
 	Lastname     string `json:"lastname,omitempty"`
 	SSN          string `json:"ssn,omitempty"`
 	EnrolleeType string `json:"enrollee_type,omitempty"`
+}
+
+// Result holds the final response to return to the client
+type Result struct {
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 const (
@@ -96,15 +103,18 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(conn, "Hello server\n")
 
 	msg, err := readDataOnConn(conn)
+	result := Result{}
 
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(err.Error()))
+		result.Error = strings.TrimSpace(err.Error())
 	} else {
 		log.Printf("DB Server says: %v\n", msg)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("DB Server says => %v\n", msg)))
+		message := fmt.Sprintf("OPA allowed request: %v", strings.TrimSpace(msg))
+		result.Message = message
 	}
+	json.NewEncoder(w).Encode(result)
 }
 
 func handleGetData(w http.ResponseWriter, r *http.Request) {
@@ -159,9 +169,8 @@ func readDataOnConn(conn net.Conn) (string, error) {
 	// Read server response
 	status, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil && err != io.EOF && err.Error() == "remote error: tls: bad certificate" {
-		msg := fmt.Sprintf("DB Server says => OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
-		log.Printf(msg)
-		return "", fmt.Errorf(msg)
+		log.Printf("DB Server says => OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
+		return "", fmt.Errorf("OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
 	}
 	return status, nil
 }
