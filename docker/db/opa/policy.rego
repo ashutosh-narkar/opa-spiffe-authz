@@ -26,6 +26,6 @@ is_day_restricted {
     restricted_days[day]
 }
 
-pii = ["SSN", "EnrolleeType"] {
-    input.peerID == "spiffe://domain.test/restricted"
-}
+#pii = ["SSN", "EnrolleeType"] {
+#    input.peerID == "spiffe://domain.test/restricted"
+#}
