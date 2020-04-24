@@ -17,8 +17,8 @@ def home():
 
 @app.route('/connect/<service>')
 def make_connection(service):
-    if service == "special":
-        url = "http://special:8001/connect"
+    if service == "privileged":
+        url = "http://privileged:8001/connect"
     elif service == "restricted":
         url = "http://restricted:8002/connect"
     elif service == "external":
@@ -29,10 +29,12 @@ def make_connection(service):
 
 @app.route('/getdata/<service>')
 def get_data(service):
-    if service == "special":
-        url = "http://special:8001/getdata"
+    if service == "privileged":
+        url = "http://privileged:8001/getdata"
     elif service == "restricted":
         url = "http://restricted:8002/getdata"
+    elif service == "external":
+        url = "http://external:8003/getdata"
 
     r = requests.get(url, headers=request.headers)
     return r.content, r.status_code

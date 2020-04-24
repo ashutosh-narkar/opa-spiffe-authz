@@ -9,15 +9,15 @@ services:
       envoymesh:
         aliases:
           - db
-  special:
-    build: ./docker/special
-    hostname: special
+  privileged:
+    build: ./docker/privileged
+    hostname: privileged
     tty: true
     privileged: true
     networks:
       envoymesh:
         aliases:
-          - special
+          - privileged
   restricted:
     build: ./docker/restricted
     hostname: restricted

@@ -28,7 +28,7 @@ var (
 )
 
 const (
-	clientSpiffeID   = "spiffe://domain.test/special"
+	//clientSpiffeID   = "spiffe://domain.test/privileged"
 	spiffeSocketPath = "unix:///tmp/agent.sock"
 )
 

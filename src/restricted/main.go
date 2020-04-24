@@ -42,8 +42,10 @@ type Patient struct {
 
 // Result holds the final response to return to the client
 type Result struct {
-	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Client           string    `json:"client,omitempty"`
+	ConnectionStatus string    `json:"connection_status,omitempty"`
+	Reason           string    `json:"reason,omitempty"`
+	Patients         []Patient `json:"patients,omitempty"`
 }
 
 const (
@@ -104,15 +106,18 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := readDataOnConn(conn)
 	result := Result{}
+	result.Client = clientSpiffeID
 
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
-		result.Error = strings.TrimSpace(err.Error())
+		result.ConnectionStatus = "Not Created"
+		result.Reason = strings.TrimSpace(err.Error())
 	} else {
 		log.Printf("DB Server says: %v\n", msg)
 		w.WriteHeader(http.StatusOK)
 		message := fmt.Sprintf("OPA allowed request: %v", strings.TrimSpace(msg))
-		result.Message = message
+		result.ConnectionStatus = "Created"
+		result.Reason = message
 	}
 	json.NewEncoder(w).Encode(result)
 }
@@ -124,15 +129,18 @@ func handleGetData(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(conn, "/getdata\n")
 
 	msg, err := readDataOnConnJson(conn)
+	result := Result{}
+	result.Client = clientSpiffeID
 
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(err.Error()))
+		result.Reason = strings.TrimSpace(err.Error())
 	} else {
 		log.Printf("DB Server says: %v\n", msg)
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(msg)
+		result.Patients = msg
 	}
+	json.NewEncoder(w).Encode(result)
 }
 
 func makeTLSConnection() net.Conn {
@@ -182,6 +190,10 @@ func readDataOnConnJson(conn net.Conn) ([]Patient, error) {
 	patients := []Patient{}
 
 	if err := decoder.Decode(&patients); err != nil {
+		if err.Error() == "remote error: tls: bad certificate" {
+			log.Printf("DB Server says => OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
+			return nil, fmt.Errorf("OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
+		}
 		log.Printf("Dencoding error: %v\n", err)
 	}
 	return patients, nil

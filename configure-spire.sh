@@ -1,5 +1,5 @@
 #!/bin/bash
-# This script starts the spire agent in the special, restricted external and db servers
+# This script starts the spire agent in the privileged, restricted, external and db servers
 # and creates the workload registration entries for them.
 
 set -e
@@ -11,7 +11,7 @@ fingerprint() {
 	cat $1 | openssl x509 -outform DER | openssl sha1 -r | awk '{print $1}'
 }
 
-SPECIAL_AGENT_FINGERPRINT=$(fingerprint docker/special/conf/agent.crt.pem)
+PRIVILEGED_AGENT_FINGERPRINT=$(fingerprint docker/privileged/conf/agent.crt.pem)
 RESTRICTED_AGENT_FINGERPRINT=$(fingerprint docker/restricted/conf/agent.crt.pem)
 EXTERNAL_AGENT_FINGERPRINT=$(fingerprint docker/external/conf/agent.crt.pem)
 DB_AGENT_FINGERPRINT=$(fingerprint docker/db/conf/agent.crt.pem)
@@ -22,7 +22,7 @@ DB_AGENT_FINGERPRINT=$(fingerprint docker/db/conf/agent.crt.pem)
 # trust bundle (see UpstreamCA under
 # https://github.com/spiffe/spire/blob/master/doc/spire_server.md#plugin-types)
 docker-compose exec -T spire-server bin/spire-server bundle show |
-	docker-compose exec -T special tee conf/agent/bootstrap.crt > /dev/null
+	docker-compose exec -T privileged tee conf/agent/bootstrap.crt > /dev/null
 docker-compose exec -T spire-server bin/spire-server bundle show |
 	docker-compose exec -T restricted tee conf/agent/bootstrap.crt > /dev/null
 docker-compose exec -T spire-server bin/spire-server bundle show |
@@ -30,9 +30,9 @@ docker-compose exec -T spire-server bin/spire-server bundle show |
 docker-compose exec -T spire-server bin/spire-server bundle show |
 	docker-compose exec -T db tee conf/agent/bootstrap.crt > /dev/null
 
-# Start up the special service SPIRE agent.
-echo "${bb}Starting special service SPIRE agent...${nn}"
-docker-compose exec -d special bin/spire-agent run
+# Start up the privileged service SPIRE agent.
+echo "${bb}Starting privileged service SPIRE agent...${nn}"
+docker-compose exec -d privileged bin/spire-agent run
 
 # Start up the restricted service SPIRE agent.
 echo "${bb}Starting restricted service SPIRE agent...${nn}"
@@ -48,11 +48,11 @@ docker-compose exec -d db bin/spire-agent run
 
 echo "${nn}"
 
-echo "${bb}Creating registration entry for the special service...${nn}"
+echo "${bb}Creating registration entry for the privileged service...${nn}"
 docker-compose exec spire-server bin/spire-server entry create \
 	-selector unix:user:root \
-	-spiffeID spiffe://domain.test/special \
-	-parentID spiffe://domain.test/spire/agent/x509pop/${SPECIAL_AGENT_FINGERPRINT}
+	-spiffeID spiffe://domain.test/privileged \
+	-parentID spiffe://domain.test/spire/agent/x509pop/${PRIVILEGED_AGENT_FINGERPRINT}
 
 echo "${bb}Creating registration entry for the restricted service...${nn}"
 docker-compose exec spire-server bin/spire-server entry create \

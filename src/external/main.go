@@ -39,10 +39,21 @@ const (
 	dialTimeout      = 2 * time.Minute
 )
 
+// Patient holds patient info
+type Patient struct {
+	ID           string `json:"id,omitempty"`
+	Firstname    string `json:"firstname,omitempty"`
+	Lastname     string `json:"lastname,omitempty"`
+	SSN          string `json:"ssn,omitempty"`
+	EnrolleeType string `json:"enrollee_type,omitempty"`
+}
+
 // Result holds the final response to return to the client
 type Result struct {
-	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Client           string    `json:"client,omitempty"`
+	ConnectionStatus string    `json:"connection_status,omitempty"`
+	Reason           string    `json:"reason,omitempty"`
+	Patients         []Patient `json:"patients,omitempty"`
 }
 
 func main() {
@@ -78,6 +89,7 @@ func run(ctx context.Context) (err error) {
 	r := chi.NewRouter()
 	r.Use(noCache)
 	r.Get("/connect", http.HandlerFunc(handleConnect))
+	r.Get("/getdata", http.HandlerFunc(handleGetData))
 
 	log.Printf("listening on %s...", ln.Addr())
 	server := &http.Server{
@@ -87,21 +99,51 @@ func run(ctx context.Context) (err error) {
 }
 
 func handleConnect(w http.ResponseWriter, r *http.Request) {
-	msg, err := makeTLSConnection()
+	conn := makeTLSConnection()
+
+	// Send a message to the server using the TLS connection
+	fmt.Fprintf(conn, "Hello server\n")
+
+	msg, err := readDataOnConn(conn)
 	result := Result{}
+	result.Client = clientSpiffeID
 
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
-		result.Error = strings.TrimSpace(err.Error())
+		result.ConnectionStatus = "Not Created"
+		result.Reason = strings.TrimSpace(err.Error())
 	} else {
+		log.Printf("DB Server says: %v\n", msg)
 		w.WriteHeader(http.StatusOK)
 		message := fmt.Sprintf("OPA allowed request: %v", strings.TrimSpace(msg))
-		result.Message = message
+		result.ConnectionStatus = "Created"
+		result.Reason = message
 	}
 	json.NewEncoder(w).Encode(result)
 }
 
-func makeTLSConnection() (string, error) {
+func handleGetData(w http.ResponseWriter, r *http.Request) {
+	conn := makeTLSConnection()
+
+	// Send a message to the server using the TLS connection
+	fmt.Fprintf(conn, "/getdata\n")
+
+	msg, err := readDataOnConnJson(conn)
+	result := Result{}
+	result.Client = clientSpiffeID
+
+	if err != nil {
+		w.WriteHeader(http.StatusForbidden)
+		result.Reason = strings.TrimSpace(err.Error())
+	} else {
+		log.Printf("DB Server says: %v\n", msg)
+		w.WriteHeader(http.StatusOK)
+		result.Patients = msg
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+func makeTLSConnection() net.Conn {
 
 	// Set SPIFFE_ENDPOINT_SOCKET to the workload API provider socket path (SPIRE is used in this example).
 	err := os.Setenv("SPIFFE_ENDPOINT_SOCKET", spiffeSocketPath)
@@ -127,21 +169,34 @@ func makeTLSConnection() (string, error) {
 	if err != nil {
 		log.Fatalf("Unable to create TLS connection: %v", err)
 	}
+	return conn
+}
 
-	// Send a message to the server using the TLS connection
-	fmt.Fprintf(conn, "Hello server\n")
+func readDataOnConn(conn net.Conn) (string, error) {
 
 	// Read server response
-	for {
-		status, err := bufio.NewReader(conn).ReadString('\n')
-		if err != nil && err != io.EOF && err.Error() == "remote error: tls: bad certificate" {
-			msg := fmt.Sprintf("OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
-			log.Printf(msg)
-			return "", fmt.Errorf(msg)
-		}
-		log.Printf("DB Server says: %v", status)
-		return status, nil
+	status, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil && err != io.EOF && err.Error() == "remote error: tls: bad certificate" {
+		log.Printf("DB Server says => OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
+		return "", fmt.Errorf("OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
 	}
+	return status, nil
+}
+
+func readDataOnConnJson(conn net.Conn) ([]Patient, error) {
+
+	// Read server response
+	decoder := json.NewDecoder(conn)
+	patients := []Patient{}
+
+	if err := decoder.Decode(&patients); err != nil {
+		if err.Error() == "remote error: tls: bad certificate" {
+			log.Printf("DB Server says => OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
+			return nil, fmt.Errorf("OPA denied request: unexpected peer ID %v\n\n", clientSpiffeID)
+		}
+		log.Printf("Dencoding error: %v\n", err)
+	}
+	return patients, nil
 }
 
 // Authorizer authorizes the request using OPA
