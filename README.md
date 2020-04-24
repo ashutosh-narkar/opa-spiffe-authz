@@ -58,7 +58,7 @@ $ ./configure-spire.sh
 
 SPIFFE's `v2` API provides methods (`Listen` and `Dial`) to create a mTLS connection using the X509-SVID obtained from the Workload API. These methods take an `Authorizer` which authorizes a workload given its `SPIFFE ID`. The library comes with some built-in authorizers that check a `SPIFFE ID`, a list of `SPIFFE IDs` etc. to make a decision.
 
-For more complex scenarios, where the decision would depend on some dynmanic properties or external context, the built-in authorizers wouldn't suffice.
+For more complex scenarios, where the decision would depend on some dynamic properties or external context, the built-in authorizers wouldn't suffice.
 
 OPA as an `Authorizer` would be perfect for such complex use-cases !
 
