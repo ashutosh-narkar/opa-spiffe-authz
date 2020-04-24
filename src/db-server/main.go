@@ -3,14 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/opa-spiffe-demo/src/common"
 	"github.com/opa-spiffe-demo/src/opa"
-	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls"
-	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"strings"
 
 	"io"
@@ -26,20 +24,6 @@ var (
 	addrFlag = flag.String("addr", ":8082", "address to bind the db server to")
 	logFlag  = flag.String("log", "", "path to log to (empty=stderr)")
 )
-
-const (
-	//clientSpiffeID   = "spiffe://domain.test/privileged"
-	spiffeSocketPath = "unix:///tmp/agent.sock"
-)
-
-// Patient holds patient info
-type Patient struct {
-	ID           string `json:"id,omitempty"`
-	Firstname    string `json:"firstname,omitempty"`
-	Lastname     string `json:"lastname,omitempty"`
-	SSN          string `json:"ssn,omitempty"`
-	EnrolleeType string `json:"enrollee_type,omitempty"`
-}
 
 func main() {
 	if err := run(context.Background()); err != nil {
@@ -65,27 +49,7 @@ func run(ctx context.Context) (err error) {
 
 	log.Printf("starting db server...")
 
-	// Set SPIFFE_ENDPOINT_SOCKET to the workload API provider socket path (SPIRE is used in this example).
-	err = os.Setenv("SPIFFE_ENDPOINT_SOCKET", spiffeSocketPath)
-	if err != nil {
-		log.Fatalf("Unable to set SPIFFE_ENDPOINT_SOCKET env variable: %v", err)
-	}
-
-	// Creates a TLS listener
-
-	// allow any SPIFFE ID
-	//listener, err := spiffetls.Listen(ctx, "tcp", *addrFlag, tlsconfig.AuthorizeAny())
-
-	// allow a specific SPIFFE ID
-	//spiffeID, _ := spiffeid.FromString(clientSpiffeID)
-	//listener, err := spiffetls.Listen(ctx, "tcp", *addrFlag, tlsconfig.AuthorizeID(spiffeID))
-
-	// OPA as authorizer
-	listener, err := spiffetls.Listen(ctx, "tcp", *addrFlag, Authorizer())
-
-	if err != nil {
-		log.Fatalf("Unable to create TLS listener: %v", err)
-	}
+	listener := common.CreateTLSLIstener(ctx, *addrFlag)
 
 	defer listener.Close()
 
@@ -144,9 +108,9 @@ func handleError(err error) {
 	log.Printf("Unable to accept connection: %v", err)
 }
 
-func generateTestData() []Patient {
-	patients := []Patient{}
-	patients = append(patients, Patient{
+func generateTestData() []common.Patient {
+	patients := []common.Patient{}
+	patients = append(patients, common.Patient{
 		ID:           "1",
 		Firstname:    "Iron",
 		Lastname:     "Man",
@@ -154,7 +118,7 @@ func generateTestData() []Patient {
 		EnrolleeType: "Primary",
 	})
 
-	patients = append(patients, Patient{
+	patients = append(patients, common.Patient{
 		ID:           "2",
 		Firstname:    "Thor",
 		Lastname:     "Odinson",
@@ -162,7 +126,7 @@ func generateTestData() []Patient {
 		EnrolleeType: "Primary",
 	})
 
-	patients = append(patients, Patient{
+	patients = append(patients, common.Patient{
 		ID:           "3",
 		Firstname:    "Peter",
 		Lastname:     "Parker",
@@ -170,29 +134,22 @@ func generateTestData() []Patient {
 		EnrolleeType: "Secondary",
 	})
 
-	patients = append(patients, Patient{
+	patients = append(patients, common.Patient{
 		ID:           "4",
 		Firstname:    "Nick",
 		Lastname:     "Fury",
-		SSN:          "333-33-3333",
+		SSN:          "444-44-4444",
 		EnrolleeType: "Secondary",
 	})
 	return patients
 }
 
-// Authorizer authorizes the request using OPA
-func Authorizer() tlsconfig.Authorizer {
-	return tlsconfig.Authorizer(func(actual spiffeid.ID, verifiedChains [][]*x509.Certificate) error {
-		return opa.Authorizer(actual.String(), verifiedChains)
-	})
-}
-
-func getObfuscateResult(conn net.Conn, original []Patient) []Patient {
+func getObfuscateResult(conn net.Conn, original []common.Patient) []common.Patient {
 	id, _ := spiffetls.PeerIDFromConn(conn)
 	fields, err := opa.GetPiiFromPolicy(id.String())
 
 	if err != nil {
-		return []Patient{}
+		return []common.Patient{}
 	}
 
 	if len(fields) == 0 {
@@ -207,10 +164,10 @@ func getObfuscateResult(conn net.Conn, original []Patient) []Patient {
 	}
 
 	// build a new result based on the fields to filter
-	patients := []Patient{}
+	patients := []common.Patient{}
 
 	for _, p := range original {
-		newPatient := Patient{}
+		newPatient := common.Patient{}
 
 		if _, ok := filterMap["ID"]; ok {
 			newPatient.ID = "***********"

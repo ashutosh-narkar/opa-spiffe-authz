@@ -141,7 +141,7 @@ $ curl -s localhost:5000/getdata/privileged | jq .
       "id": "4",
       "firstname": "Nick",
       "lastname": "Fury",
-      "ssn": "333-33-3333",
+      "ssn": "444-44-4444",
       "enrollee_type": "Secondary"
     }
   ]
