@@ -65,7 +65,7 @@ OPA as an `Authorizer` would be perfect for such complex use-cases !
 The policy we want to enforce says that:
 
 > **Always** allow the `opa-spiffe-demo_privileged_1` and `opa-spiffe-demo_restricted_1` clients to form a mTLS
-> connection with the server. The `opa-spiffe-demo_external_1` cannot connect to the sever on Monday, Wednesday and Friday.
+> connection with the server. The `opa-spiffe-demo_external_1` cannot connect to the server on Monday, Wednesday and Friday.
 
 Check the `opa-spiffe-demo_privileged_1` and `opa-spiffe-demo_restricted_1` can connect to the server.
 
